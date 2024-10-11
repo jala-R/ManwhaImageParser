@@ -106,7 +106,7 @@ func prod() {
 	defer frame.Close()
 
 	maxLaplacianScore := math.SmallestNonzeroFloat64
-	var lastMaxFrame gocv.Mat
+	lastMaxFrame := gocv.NewMat()
 
 	for i := 0; true; i++ {
 		// fmt.Println("fdfd")
@@ -167,8 +167,12 @@ func experiment() {
 	fmt.Printf("The video frame rate => %.4f \n", fps)
 	fmt.Printf("The video frame counts => %.4f \n", frameCnt)
 
-	frame := gocv.NewMat()
+	// frame := gocv.NewMat()
+
+	frame := gocv.Mat{}
 	defer frame.Close()
+
+	fmt.Println(frame.Empty())
 
 	// maxLaplacianScore := math.SmallestNonzeroFloat64
 	// var lastMaxFrame gocv.Mat

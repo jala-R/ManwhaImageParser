@@ -70,9 +70,13 @@ func isInvalidImage(lap float64) bool {
 
 func store(frame *gocv.Mat) bool {
 
-	if frame == nil || frame.Empty() {
+	if frame == nil {
 		return false
 	}
+	if frame.Empty() {
+		return false
+	}
+
 	val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", os.Args[3], ptr), *frame)
 	ptr++
 

@@ -1,12 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 
 	"gocv.io/x/gocv"
 )
+
+const configFilePath = "./config.json"
 
 var ptr = 1
 
@@ -56,19 +60,54 @@ func getLaplacianScore(mat *gocv.Mat) float64 {
 // 	}
 // }
 
+type ConfigFile struct {
+	Stage  string `json:"Stage"`
+	Output string `json:"Output"`
+	Input  string `json:"Input"`
+	Offset int    `json:"Offset"`
+	Limit  int    `json: "limit"`
+}
+
+func configParser() ConfigFile {
+	file, err := os.Open(configFilePath)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	var cfg ConfigFile
+
+	err = json.Unmarshal(data, &cfg)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	return cfg
+}
+
 func main() {
-	if os.Args[1] == "test" {
-		experiment()
-	} else if os.Args[1] == "prod" {
-		prod()
+	var cfg = configParser()
+	fmt.Println(cfg)
+	if cfg.Stage == "test" {
+		experiment(cfg)
+	} else if cfg.Stage == "prod" {
+		prod(cfg)
 	}
 }
 
 func isInvalidImage(lap float64) bool {
-	return lap < 25
+	return lap < 15
 }
 
-func store(frame *gocv.Mat) bool {
+func store(frame *gocv.Mat, cfg ConfigFile) bool {
 
 	if frame == nil {
 		return false
@@ -77,16 +116,16 @@ func store(frame *gocv.Mat) bool {
 		return false
 	}
 
-	val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", os.Args[3], ptr), *frame)
+	val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", cfg.Output, ptr), *frame)
 	ptr++
 
 	return val
 }
 
-func prod() {
+func prod(cfg ConfigFile) {
 
 	fmt.Println("Running")
-	vid, err := gocv.VideoCaptureFile(os.Args[2])
+	vid, err := gocv.VideoCaptureFile(cfg.Input)
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -107,11 +146,20 @@ func prod() {
 
 	maxLaplacianScore := math.SmallestNonzeroFloat64
 	lastMaxFrame := gocv.NewMat()
+	defer lastMaxFrame.Close()
+
+	if cfg.Offset != 0 {
+		vid.Grab(cfg.Offset)
+	}
 
 	for i := 0; true; i++ {
 		// fmt.Println("fdfd")
 		if ok := vid.Read(&frame); !ok {
 			fmt.Println("Frame Read completed")
+			break
+		}
+
+		if i >= cfg.Limit {
 			break
 		}
 
@@ -123,7 +171,7 @@ func prod() {
 
 		fmt.Printf("\r Frame Cnt : %d  lscore %f", i, laplacianScore)
 
-		if maxLaplacianScore < laplacianScore && laplacianScore > 50 {
+		if maxLaplacianScore < laplacianScore && laplacianScore > 25 {
 			maxLaplacianScore = laplacianScore
 			lastMaxFrame = (frame.Clone())
 
@@ -131,7 +179,7 @@ func prod() {
 
 		if isInvalidImage(laplacianScore) {
 
-			val := store(&lastMaxFrame)
+			val := store(&lastMaxFrame, cfg)
 
 			if val {
 				fmt.Printf("Stored image %d  %.f\n ", ptr, getLaplacianScore(&lastMaxFrame))
@@ -148,10 +196,10 @@ func prod() {
 
 }
 
-func experiment() {
+func experiment(cfg ConfigFile) {
 
 	fmt.Println("Running")
-	vid, err := gocv.VideoCaptureFile(os.Args[2])
+	vid, err := gocv.VideoCaptureFile(cfg.Input)
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -167,20 +215,24 @@ func experiment() {
 	fmt.Printf("The video frame rate => %.4f \n", fps)
 	fmt.Printf("The video frame counts => %.4f \n", frameCnt)
 
-	// frame := gocv.NewMat()
-
-	frame := gocv.Mat{}
+	frame := gocv.NewMat()
 	defer frame.Close()
-
-	fmt.Println(frame.Empty())
 
 	// maxLaplacianScore := math.SmallestNonzeroFloat64
 	// var lastMaxFrame gocv.Mat
+
+	// if cfg.Offset != 0 {
+	vid.Grab(cfg.Offset)
+	// }
 
 	for i := 0; true; i++ {
 		// fmt.Println("fdfd")
 		if ok := vid.Read(&frame); !ok {
 			fmt.Println("Frame Read completed")
+			break
+		}
+
+		if i >= cfg.Limit {
 			break
 		}
 
@@ -200,7 +252,7 @@ func experiment() {
 
 		// if isInvalidImage(laplacianScore) {
 
-		val := store(&frame)
+		val := store(&frame, cfg)
 
 		if val {
 			fmt.Printf("Stored image %d  %.f\n ", ptr, getLaplacianScore(&frame))

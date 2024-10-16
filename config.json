@@ -1,0 +1,7 @@
+{
+    "Stage":"test",
+    "Output":"./test1",
+    "Input":"./test.mp4",
+    "Offset": 0,
+    "Limit":200
+}

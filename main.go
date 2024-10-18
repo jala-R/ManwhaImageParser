@@ -6,13 +6,16 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 
 	"gocv.io/x/gocv"
 )
 
 const configFilePath = "./config.json"
 
-var ptr = 1
+var ptr = 0
 
 func getLaplacianScore(mat *gocv.Mat) float64 {
 
@@ -65,7 +68,69 @@ type ConfigFile struct {
 	Output string `json:"Output"`
 	Input  string `json:"Input"`
 	Offset int    `json:"Offset"`
-	Limit  int    `json: "limit"`
+	Limit  int    `json:"limit"`
+}
+
+func test2(cfg ConfigFile) {
+	dirs, err := os.ReadDir(cfg.Output)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	var fileNames []string
+
+	for i := range dirs {
+		if !dirs[i].IsDir() {
+			fileNames = append(fileNames, dirs[i].Name())
+		}
+	}
+
+	sort.Slice(fileNames, func(i, j int) bool {
+		f1 := strings.Split(fileNames[i], ".")[0]
+		f2 := strings.Split(fileNames[j], ".")[0]
+
+		file1, _ := strconv.ParseInt(f1, 10, 64)
+		file2, _ := strconv.ParseInt(f2, 10, 64)
+
+		return file1 < file2
+	})
+
+	for i := range fileNames {
+		if i == 0 {
+			continue
+		}
+
+		frame := gocv.NewMat()
+		mat1 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i]), gocv.IMReadGrayScale)
+		mat2 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i-1]), gocv.IMReadGrayScale)
+
+		gocv.AbsDiff(mat1, mat2, &frame)
+
+		// thres := gocv.NewMat()
+		// gocv.Threshold(frame, &thres, 30, 255, gocv.ThresholdBinary)
+
+		diff := gocv.CountNonZero(frame)
+
+		percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
+		val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", "./part2", i), frame)
+		// fmt.Printf("wrote %d  -> %.2f%% \n", i, percentage)
+		if percentage >= 65 {
+			if val {
+				fmt.Printf("wrote %d  -> %.2f%% \n", i, percentage)
+			}
+		}
+
+		mat1.Close()
+		mat2.Close()
+		frame.Close()
+
+		// fmt.Println(fileNames[i])
+	}
+}
+
+func getPercentage(total, given float64) float64 {
+	return (given / total) * 100
 }
 
 func configParser() ConfigFile {
@@ -94,6 +159,7 @@ func configParser() ConfigFile {
 }
 
 func main() {
+	fmt.Println("kjnbjfn")
 	var cfg = configParser()
 	fmt.Println(cfg)
 	if cfg.Stage == "test" {
@@ -101,10 +167,39 @@ func main() {
 	} else if cfg.Stage == "prod" {
 		prod(cfg)
 	}
+	test2(cfg)
+}
+
+func isImageSwitch(prev, current gocv.Mat) bool {
+	if prev.Empty() {
+		return false
+	}
+	mat1 := gocv.NewMat()
+	mat2 := gocv.NewMat()
+	frame := gocv.NewMat()
+
+	defer func() {
+		mat1.Close()
+		mat2.Close()
+		frame.Close()
+	}()
+
+	gocv.CvtColor(prev, &mat1, gocv.ColorBGRToGray)
+	gocv.CvtColor(current, &mat2, gocv.ColorBGRToGray)
+
+	gocv.AbsDiff(mat1, mat2, &frame)
+
+	// thres := gocv.NewMat()
+	// gocv.Threshold(frame, &thres, 30, 255, gocv.ThresholdBinary)
+
+	diff := gocv.CountNonZero(frame)
+
+	percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
+	return percentage >= 90
 }
 
 func isInvalidImage(lap float64) bool {
-	return lap < 15
+	return lap <= 17
 }
 
 func store(frame *gocv.Mat, cfg ConfigFile) bool {
@@ -116,8 +211,8 @@ func store(frame *gocv.Mat, cfg ConfigFile) bool {
 		return false
 	}
 
-	val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", cfg.Output, ptr), *frame)
 	ptr++
+	val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", cfg.Output, ptr), *frame)
 
 	return val
 }
@@ -144,6 +239,9 @@ func prod(cfg ConfigFile) {
 	frame := gocv.NewMat()
 	defer frame.Close()
 
+	prevFrame := gocv.NewMat()
+	defer prevFrame.Close()
+
 	maxLaplacianScore := math.SmallestNonzeroFloat64
 	lastMaxFrame := gocv.NewMat()
 	defer lastMaxFrame.Close()
@@ -154,6 +252,7 @@ func prod(cfg ConfigFile) {
 
 	for i := 0; true; i++ {
 		// fmt.Println("fdfd")
+		// frame.Close()
 		if ok := vid.Read(&frame); !ok {
 			fmt.Println("Frame Read completed")
 			break
@@ -169,15 +268,9 @@ func prod(cfg ConfigFile) {
 
 		var laplacianScore = getLaplacianScore(&frame)
 
-		fmt.Printf("\r Frame Cnt : %d  lscore %f", i, laplacianScore)
+		fmt.Printf("\r Frame Cnt : %d  lscore %f", i+cfg.Offset, laplacianScore)
 
-		if maxLaplacianScore < laplacianScore && laplacianScore > 25 {
-			maxLaplacianScore = laplacianScore
-			lastMaxFrame = (frame.Clone())
-
-		}
-
-		if isInvalidImage(laplacianScore) {
+		if isInvalidImage(laplacianScore) || isImageSwitch(prevFrame, frame) {
 
 			val := store(&lastMaxFrame, cfg)
 
@@ -186,8 +279,16 @@ func prod(cfg ConfigFile) {
 			}
 
 			maxLaplacianScore = math.SmallestNonzeroFloat64
+			lastMaxFrame.Close()
 			lastMaxFrame = gocv.NewMat()
+		} else if maxLaplacianScore < laplacianScore && laplacianScore > 17 {
+			maxLaplacianScore = laplacianScore
+			lastMaxFrame.Close()
+			lastMaxFrame = (frame.Clone())
+
 		}
+		prevFrame.Close()
+		prevFrame = frame.Clone()
 		// }
 
 	}

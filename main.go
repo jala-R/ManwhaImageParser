@@ -167,7 +167,7 @@ func main() {
 	} else if cfg.Stage == "prod" {
 		prod(cfg)
 	}
-	test2(cfg)
+	// test2(cfg)
 }
 
 func isImageSwitch(prev, current gocv.Mat) bool {
@@ -195,7 +195,7 @@ func isImageSwitch(prev, current gocv.Mat) bool {
 	diff := gocv.CountNonZero(frame)
 
 	percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
-	return percentage >= 90
+	return percentage >= 70
 }
 
 func isInvalidImage(lap float64) bool {

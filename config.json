@@ -1,7 +1,7 @@
 {
-    "Stage":"test1",
-    "Output":"./part1",
+    "Stage":"prod",
+    "Output":"./part2",
     "Input":"./test1.mp4",
-    "Offset": 0,
-    "Limit":4000
+    "Offset": 303217,
+    "Limit":603218
 }

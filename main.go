@@ -102,24 +102,26 @@ func test2(cfg ConfigFile) {
 		}
 
 		frame := gocv.NewMat()
-		mat1 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i]), gocv.IMReadGrayScale)
-		mat2 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i-1]), gocv.IMReadGrayScale)
+		mat1 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i]), gocv.IMReadAnyColor)
+		mat2 := gocv.IMRead(fmt.Sprintf("%s/%s", cfg.Output, fileNames[i-1]), gocv.IMReadAnyColor)
 
-		gocv.AbsDiff(mat1, mat2, &frame)
+		// gocv.AbsDiff(mat1, mat2, &frame)
 
 		// thres := gocv.NewMat()
 		// gocv.Threshold(frame, &thres, 30, 255, gocv.ThresholdBinary)
 
-		diff := gocv.CountNonZero(frame)
+		// diff := gocv.CountNonZero(frame)
 
-		percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
-		val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", "./part2", i), frame)
+		// percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
+		// val := gocv.IMWrite(fmt.Sprintf("%s/%d.png", "./part2", i), frame)
 		// fmt.Printf("wrote %d  -> %.2f%% \n", i, percentage)
-		if percentage >= 65 {
-			if val {
-				fmt.Printf("wrote %d  -> %.2f%% \n", i, percentage)
-			}
-		}
+		// if percentage >= 40 {
+		// 	if val {
+
+		fmt.Printf("wrote %s - %s  -> ", fileNames[i-1], fileNames[i])
+		isImageSwitch(mat1, mat2)
+		// 	}
+		// }
 
 		mat1.Close()
 		mat2.Close()
@@ -163,6 +165,7 @@ func main() {
 	var cfg = configParser()
 	fmt.Println(cfg)
 	if cfg.Stage == "test" {
+		fmt.Println("exp")
 		experiment(cfg)
 	} else if cfg.Stage == "prod" {
 		prod(cfg)
@@ -172,6 +175,7 @@ func main() {
 
 func isImageSwitch(prev, current gocv.Mat) bool {
 	if prev.Empty() {
+		fmt.Println("-==-=")
 		return false
 	}
 	mat1 := gocv.NewMat()
@@ -184,6 +188,7 @@ func isImageSwitch(prev, current gocv.Mat) bool {
 		frame.Close()
 	}()
 
+	// gocv.IMReadAnyColor
 	gocv.CvtColor(prev, &mat1, gocv.ColorBGRToGray)
 	gocv.CvtColor(current, &mat2, gocv.ColorBGRToGray)
 
@@ -195,10 +200,18 @@ func isImageSwitch(prev, current gocv.Mat) bool {
 	diff := gocv.CountNonZero(frame)
 
 	percentage := getPercentage(float64(frame.Rows()*frame.Cols()), float64(diff))
-	return percentage >= 70
+
+	if percentage >= 50 {
+		fmt.Printf("--percentage  %.2f \n", percentage)
+	}
+
+	return percentage >= 50
 }
 
 func isInvalidImage(lap float64) bool {
+	if lap <= 17 {
+		fmt.Print(" low score")
+	}
 	return lap <= 17
 }
 
@@ -218,6 +231,8 @@ func store(frame *gocv.Mat, cfg ConfigFile) bool {
 }
 
 func prod(cfg ConfigFile) {
+
+	var framesStore = make([]int64, 0, cfg.Limit-cfg.Offset)
 
 	fmt.Println("Running")
 	vid, err := gocv.VideoCaptureFile(cfg.Input)
@@ -247,10 +262,14 @@ func prod(cfg ConfigFile) {
 	defer lastMaxFrame.Close()
 
 	if cfg.Offset != 0 {
+		fmt.Println("offsetting")
 		vid.Grab(cfg.Offset)
+		fmt.Println("offsetting done")
 	}
 
-	for i := 0; true; i++ {
+	i := 0
+
+	for i = 0; true; i++ {
 		// fmt.Println("fdfd")
 		// frame.Close()
 		if ok := vid.Read(&frame); !ok {
@@ -276,12 +295,13 @@ func prod(cfg ConfigFile) {
 
 			if val {
 				fmt.Printf("Stored image %d  %.f\n ", ptr, getLaplacianScore(&lastMaxFrame))
+				framesStore = append(framesStore, int64(i+cfg.Offset))
 			}
 
 			maxLaplacianScore = math.SmallestNonzeroFloat64
 			lastMaxFrame.Close()
 			lastMaxFrame = gocv.NewMat()
-		} else if maxLaplacianScore < laplacianScore && laplacianScore > 17 {
+		} else if maxLaplacianScore < laplacianScore {
 			maxLaplacianScore = laplacianScore
 			lastMaxFrame.Close()
 			lastMaxFrame = (frame.Clone())
@@ -293,8 +313,41 @@ func prod(cfg ConfigFile) {
 
 	}
 
-	fmt.Println("Done...")
+	if !lastMaxFrame.Empty() {
+		store(&lastMaxFrame, cfg)
+		fmt.Printf("Stored image %d  %.f\n ", ptr, getLaplacianScore(&lastMaxFrame))
+		framesStore = append(framesStore, int64(i+cfg.Offset))
+	}
 
+	fmt.Println("Done...")
+	err = WriteFramesStore(fmt.Sprintf("%s/frameSplit.json", cfg.Output), framesStore)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("written done")
+
+}
+
+func WriteFramesStore(outputFile string, data []int64) error {
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var temp = map[string][]int64{
+		"frameNumber": data,
+	}
+
+	jsonData, err := json.Marshal(temp)
+	if err != nil {
+		return err
+	}
+
+	file.Write(jsonData)
+
+	return nil
 }
 
 func experiment(cfg ConfigFile) {
@@ -324,6 +377,8 @@ func experiment(cfg ConfigFile) {
 
 	// if cfg.Offset != 0 {
 	vid.Grab(cfg.Offset)
+	prevFrame := gocv.NewMat()
+	defer prevFrame.Close()
 	// }
 
 	for i := 0; true; i++ {
@@ -356,10 +411,14 @@ func experiment(cfg ConfigFile) {
 		val := store(&frame, cfg)
 
 		if val {
-			fmt.Printf("Stored image %d  %.f\n ", ptr, getLaplacianScore(&frame))
+			fmt.Printf("Stored image %d  %.f ", ptr, getLaplacianScore(&frame))
+			isImageSwitch(prevFrame, frame)
 		} else {
 			fmt.Println("fail")
 		}
+
+		prevFrame.Close()
+		prevFrame = frame.Clone()
 
 		// maxLaplacianScore = math.SmallestNonzeroFloat64
 		// lastMaxFrame = gocv.NewMat()
